@@ -28,7 +28,8 @@ export default function ProductDetailsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const id = params.id as string;
+  const rawId = params?.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,46 +39,71 @@ export default function ProductDetailsPage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    if (!id) return;
-
-    loadProduct();
-    updateCartCount();
-  }, [id]);
-
-  async function loadProduct() {
-    setLoading(true);
-    setError("");
-
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) {
-      console.error("SUPABASE ERROR:", error);
-      setError(error.message);
+    if (!id) {
+      setError("Product ID is missing.");
       setLoading(false);
       return;
     }
 
-    setProduct(data);
-    setLoading(false);
+    loadProduct(id);
+    updateCartCount();
+  }, [id]);
+
+  async function loadProduct(productId: string) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("id", productId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("SUPABASE ERROR:", error);
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        setError("This product does not exist.");
+        setLoading(false);
+        return;
+      }
+
+      setProduct({
+        id: String(data.id),
+        name: String(data.name || ""),
+        price: Number(data.price || 0),
+        category: String(data.category || "General"),
+        image: String(data.image || ""),
+        description: String(data.description || ""),
+        stock: Number(data.stock || 0),
+      });
+
+      setLoading(false);
+    } catch (err) {
+      console.error("PRODUCT LOAD ERROR:", err);
+      setError("Unable to load this product.");
+      setLoading(false);
+    }
   }
 
   function updateCartCount() {
-    const savedCart = localStorage.getItem("elvanto-cart");
-
-    if (!savedCart) {
-      setCartCount(0);
-      return;
-    }
-
     try {
+      const savedCart = localStorage.getItem("elvanto-cart");
+
+      if (!savedCart) {
+        setCartCount(0);
+        return;
+      }
+
       const cart: CartItem[] = JSON.parse(savedCart);
 
       const totalItems = cart.reduce(
-        (total, item) => total + Number(item.quantity),
+        (total, item) => total + Number(item.quantity || 0),
         0
       );
 
@@ -111,9 +137,15 @@ export default function ProductDetailsPage() {
       return;
     }
 
-    const existingCart: CartItem[] = JSON.parse(
-      localStorage.getItem("elvanto-cart") || "[]"
-    );
+    let existingCart: CartItem[] = [];
+
+    try {
+      existingCart = JSON.parse(
+        localStorage.getItem("elvanto-cart") || "[]"
+      );
+    } catch {
+      existingCart = [];
+    }
 
     const existingProduct = existingCart.find(
       (item) => item.id === product.id
@@ -138,8 +170,8 @@ export default function ProductDetailsPage() {
         name: product.name,
         price: Number(product.price),
         image: product.image,
-        quantity: quantity,
-        stock: stock,
+        quantity,
+        stock,
       });
     }
 
@@ -149,6 +181,8 @@ export default function ProductDetailsPage() {
     );
 
     updateCartCount();
+
+    window.dispatchEvent(new Event("elvanto-cart-updated"));
 
     if (goToCart) {
       router.push("/cart");
@@ -167,6 +201,8 @@ export default function ProductDetailsPage() {
     if (!product) return;
 
     const stock = Number(product.stock);
+
+    if (stock <= 0) return;
 
     if (quantity >= stock) {
       showMessage(`Only ${stock} item(s) are available.`);
@@ -222,7 +258,6 @@ export default function ProductDetailsPage() {
   return (
     <main className="min-h-screen bg-black text-white">
 
-      {/* HEADER */}
       <header className="sticky top-0 z-50 border-b border-white/10 bg-black/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 md:px-8">
 
@@ -260,14 +295,12 @@ export default function ProductDetailsPage() {
         </div>
       </header>
 
-      {/* MESSAGE */}
       {message && (
         <div className="fixed left-1/2 top-24 z-[100] w-[90%] max-w-md -translate-x-1/2 rounded-xl border border-white/10 bg-white px-5 py-4 text-center font-semibold text-black shadow-2xl">
           {message}
         </div>
       )}
 
-      {/* BREADCRUMB */}
       <div className="mx-auto max-w-7xl px-5 pt-8 md:px-8">
         <Link
           href="/products"
@@ -277,12 +310,9 @@ export default function ProductDetailsPage() {
         </Link>
       </div>
 
-      {/* PRODUCT SECTION */}
       <section className="mx-auto grid max-w-7xl gap-12 px-5 py-10 md:grid-cols-2 md:px-8 md:py-16">
 
-        {/* PRODUCT IMAGE */}
         <div>
-
           <div className="group overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
 
             {product.image ? (
@@ -299,12 +329,10 @@ export default function ProductDetailsPage() {
 
           </div>
 
-          {/* SMALL PRODUCT INFO */}
           <div className="mt-5 grid grid-cols-3 gap-3">
 
             <div className="rounded-xl border border-white/10 p-4 text-center">
               <p className="text-lg">✓</p>
-
               <p className="mt-2 text-xs text-gray-500">
                 Quality
               </p>
@@ -312,7 +340,6 @@ export default function ProductDetailsPage() {
 
             <div className="rounded-xl border border-white/10 p-4 text-center">
               <p className="text-lg">↗</p>
-
               <p className="mt-2 text-xs text-gray-500">
                 Easy Order
               </p>
@@ -320,7 +347,6 @@ export default function ProductDetailsPage() {
 
             <div className="rounded-xl border border-white/10 p-4 text-center">
               <p className="text-lg">∞</p>
-
               <p className="mt-2 text-xs text-gray-500">
                 Everyday Use
               </p>
@@ -329,7 +355,6 @@ export default function ProductDetailsPage() {
           </div>
         </div>
 
-        {/* PRODUCT DETAILS */}
         <div className="flex flex-col justify-center">
 
           <p className="text-xs uppercase tracking-[0.3em] text-gray-500">
@@ -340,7 +365,6 @@ export default function ProductDetailsPage() {
             {product.name}
           </h1>
 
-          {/* PRICE + STOCK */}
           <div className="mt-6 flex flex-wrap items-center gap-4">
 
             <p className="text-3xl font-bold">
@@ -363,13 +387,11 @@ export default function ProductDetailsPage() {
 
           <div className="my-8 h-px bg-white/10" />
 
-          {/* DESCRIPTION */}
           <p className="text-base leading-8 text-gray-400">
             {product.description ||
               "No description available."}
           </p>
 
-          {/* QUANTITY */}
           <div className="mt-9">
 
             <p className="mb-3 text-sm font-semibold">
@@ -408,7 +430,6 @@ export default function ProductDetailsPage() {
 
           </div>
 
-          {/* TOTAL */}
           <div className="mt-7 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
 
             <span className="text-sm text-gray-500">
@@ -421,7 +442,6 @@ export default function ProductDetailsPage() {
 
           </div>
 
-          {/* BUTTONS */}
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
 
             <button
@@ -454,7 +474,6 @@ export default function ProductDetailsPage() {
 
           </div>
 
-          {/* BENEFITS */}
           <div className="mt-8 space-y-4 border-t border-white/10 pt-7">
 
             <div className="flex gap-4">
@@ -503,7 +522,6 @@ export default function ProductDetailsPage() {
         </div>
       </section>
 
-      {/* DESCRIPTION SECTION */}
       <section className="border-y border-white/10 bg-white/[0.02]">
 
         <div className="mx-auto max-w-7xl px-5 py-16 md:px-8">
@@ -524,7 +542,6 @@ export default function ProductDetailsPage() {
         </div>
       </section>
 
-      {/* FOOTER */}
       <footer className="border-t border-white/10 py-10 text-center">
 
         <Link
